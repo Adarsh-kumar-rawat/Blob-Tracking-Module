@@ -3,13 +3,21 @@ import numpy as np
 import random
 
 MIN_AREA = 80      # ignore tiny blobs
-TEXT_SIZE = 0.5    # control text size (0.3 = small, 0.5 = medium, 0.8 = large)
+TEXT_SIZE = 0.7   # control text size (0.3 = small, 0.5 = medium, 0.8 = large)
+
+# SPEED CONTROL: update every N frames
+# 10 = changes every 10 frames
+# 30 = changes every 30 frames (roughly 1 second at 30fps)
+# 60 = changes every 60 frames (roughly 2 seconds at 30fps)
+FRAME_INTERVAL = 1
+# This won't change the generation speed but will create a small delay between generation 
 
 # Choose what to display: 'equations', 'words', 'numbers', 'time', 'colors', 'names'
 DISPLAY_MODE = 'equations'
 
-# Store text persistently across frames (optional - comment out if you want new text each frame)
+# Store text persistently across frames
 blob_text = {}
+frame_count = 0
 
 def generate_random_content():
     """Generate random content based on DISPLAY_MODE"""
@@ -68,9 +76,13 @@ def generate_random_content():
     return random.choice(options)
 
 def onCook(scriptOp):
+    global frame_count
+    frame_count += 1
+    
     # 1) Get input image
     src = scriptOp.inputs[0].numpyArray(delayed=False)   # float32 RGBA 0..1
     src8 = (src * 255).astype('uint8')                   # convert to uint8
+    src8 = cv2.flip(src8, 0) #Comment out this and line 147 if you want mirror text
     gray = src8[..., 0]                                  # single channel
     
     # 2) Threshold to binary
@@ -100,19 +112,15 @@ def onCook(scriptOp):
         centers.append((cx, cy))
         cv2.circle(out8, (cx, cy), 4, (255, 255, 255, 255), -1)
         
-        # Generate or retrieve content for this blob
-        # Option A: New content each frame
-        text_content = generate_random_content()
+        # Generate or retrieve content based on FRAME_INTERVAL
+        if frame_count % FRAME_INTERVAL == 0:
+            blob_text[idx] = generate_random_content()
         
-        # Option B: Persistent content (uncomment these lines and comment line above)
-        # if idx not in blob_text:
-        #     blob_text[idx] = generate_random_content()
-        # text_content = blob_text[idx]
+        text_content = blob_text.get(idx, "")
         
         # Draw equation text inside the bounding box
-        # Use the TEXT_SIZE parameter for font scale
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = TEXT_SIZE  # use the global TEXT_SIZE setting
+        font_scale = TEXT_SIZE
         thickness = 1
         
         # Get text size to center it
@@ -128,12 +136,16 @@ def onCook(scriptOp):
         
         # Draw text with a slight shadow for better visibility
         cv2.putText(out8, text_content, (text_x+1, text_y+1), font, font_scale, (0, 0, 0, 255), thickness)
-        #cv2.putText(out8, text_content, (text_x, text_y), font, font_scale, (255, 255, 255, 255), thickness)
+        #cv2.putText(out8, text_content, (text_x, text_y), font, font_scale, (0, 0 , 255, 255), thickness)
+        # UnComment out the above line if you want shadow in text
     
     # 6) Draw connecting lines between consecutive centers
     for i in range(len(centers)-1):
         cv2.line(out8, centers[i], centers[i+1], (215, 81, 239, 255), 1)
     
-    # 7) Convert back to float32 0..1 for TOP output
+    # 7) Flip output back to correct orientation
+    out8 = cv2.flip(out8, 0)
+    
+    # 8) Convert back to float32 0..1 for TOP output
     scriptOp.copyNumpyArray(out8.astype(np.float32) / 255.0)
     return
